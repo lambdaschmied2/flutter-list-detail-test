@@ -9,39 +9,40 @@
    (#(.push navigator %))))
 
 ;; the data store
-(def items (atom {1 {:name "Jeff"}
-                  2 {:name "Jiff"}
-                  3 {:name "Joff"}}))
+(def item-store (atom {1 {:name "Jeff"}
+                       2 {:name "Jiff"}
+                       3 {:name "Joff"}}))
 
 ;; the async crud functions
 (defn get-item-list-async []
   #_{:clj-kondo/ignore [:unresolved-symbol]}
-  (Future.delayed (Duration .seconds 1) (fn [] @items)))
+  (Future.delayed (Duration .seconds 1) (fn [] @item-store)))
 
 (defn get-item-by-id-async [item-id]
   #_{:clj-kondo/ignore [:unresolved-symbol]}
   (Future.delayed (Duration .seconds 1)
-                  (fn [] (first (filter (fn [[id _data]] (= id item-id)) @items)))))
+                  (fn [] (first (filter (fn [[id _data]] (= id item-id)) @item-store)))))
 
 (defn update-item [id name]
   #_{:clj-kondo/ignore [:unresolved-symbol]}
   (Future.delayed (Duration .seconds 1)
-                  (fn [] (swap! items update id assoc :name name))))
+                  (fn [] (swap! item-store update id assoc :name name))))
 
 (defn delete-item [id]
   #_{:clj-kondo/ignore [:unresolved-symbol]}
   (Future.delayed (Duration .seconds 1)
                   (fn []
-                    (swap! items update dissoc id)
-                    (dart:core/print @items))))
+                    (swap! item-store update dissoc id)
+                    (dart:core/print @item-store))))
+
+(def shared-state (atom nil))
 
 ;; widgets
-(defn item-detail-view [item-id]
+(defn item-detail-view [item-id item]
   (f/widget
    :context ctx
    ;;  fetch watch the fetched item
-   :watch [[id data] (get-item-by-id-async item-id)]
-   :managed [name-controller (m/TextEditingController .text (:name data))]
+   :managed [name-controller (m/TextEditingController .text (:name item))]
    (m/Scaffold .appBar (m/AppBar .title (m/Text "List View")))
    .body
    (m/Column
@@ -52,45 +53,36 @@
      (m/ListTile
       .title (m/TextButton
               .onPressed (fn []
-                           (update-item id (.-text name-controller)))
+                           (update-item item-id (.-text name-controller))
+                           (swap! shared-state update item-id assoc :name (.-text name-controller))
+                           (dart:core/print @shared-state))
               .child (m/Text "Update")))
      (m/ListTile
       .title (m/TextButton
               .onPressed (fn []
                           ;;  delete the item
-                           (delete-item id)
-                          ;;  navigate back, and signal the deletion
-                           (m/Navigator.pop ctx :delete))
+                           (swap! shared-state dissoc item-id)
+                           #_(delete-item item-id)
+                           (dart:core/print @shared-state)
+                          ;;  navigate back
+                           (m/Navigator.pop ctx))
               .child (m/Text "Delete")))])))
 
 ;; list view of items
-(def main-view
-
-  ;; >>> this is ugly START <<<
-  (let [item-list (atom [])]
-    ;; fetch items and store it in atom `item-list`
-
-    (.then (get-item-list-async) #(reset! item-list %))
-    ;; >>> this is ugly END <<<
-
-    (f/widget
-     :get [m/Navigator]
-     :context ctx
+(defn main-view []
+  (.then (get-item-list-async) #(reset! shared-state %))
+  (f/widget
+   :get [m/Navigator]
+   :context ctx
      ;;  watch the `item-list` to react to its state
-     :watch [watched-item-list item-list]
-     (m/ListView
-      .children
-      (for [[id {:keys [name]}] watched-item-list]
-        (m/ListTile
-         .title    (m/Text name)
-         .onTap (fn []
-                  ;; handle the returned value from the navigator
-                  (let [action (await (navigate navigator ctx (item-detail-view id)))]
-                    (condp action =
-                      :delete (swap! item-list dissoc id)
-                      :update (.then (get-item-list-async) #(reset! item-list %))
-                      nil)))
-         .trailing (m/Icon m/Icons.navigate_next)))))))
+   :watch [watched-item-list shared-state]
+   (m/ListView
+    .children
+    (for [[id {:keys [name] :as item}] watched-item-list]
+      (m/ListTile
+       .title    (m/Text name)
+       .onTap (fn [] (navigate navigator ctx (item-detail-view id item)))
+       .trailing (m/Icon m/Icons.navigate_next))))))
 
 ;; ignore, only calls widget
 (defn main []
@@ -100,4 +92,4 @@
     .theme (m/ThemeData .primarySwatch m.Colors/pink))
    .home
    (m/Scaffold .appBar (m/AppBar .title (m/Text "List View")))
-   .body main-view))
+   .body (main-view)))
