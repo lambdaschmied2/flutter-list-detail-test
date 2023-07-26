@@ -65,9 +65,14 @@
 
 ;; list view of items
 (def main-view
+
+  ;; >>> this is ugly START <<<
   (let [item-list (atom [])]
     ;; fetch items and store it in atom `item-list`
+
     (.then (get-item-list-async) #(reset! item-list %))
+    ;; >>> this is ugly END <<<
+
     (f/widget
      :get [m/Navigator]
      :context ctx
