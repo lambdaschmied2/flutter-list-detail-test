@@ -1,0 +1,98 @@
+(ns example.main
+  (:require ["package:flutter/material.dart" :as m]
+            [cljd.flutter :as f]))
+
+(defn navigate [navigator ctx target]
+  (->
+   (m/MaterialPage .child target)
+   (.createRoute ctx)
+   (#(.push navigator %))))
+
+;; the data store
+(def items (atom {1 {:name "Jeff"}
+                  2 {:name "Jiff"}
+                  3 {:name "Joff"}}))
+
+;; the async crud functions
+(defn get-item-list-async []
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
+  (Future.delayed (Duration .seconds 1) (fn [] @items)))
+
+(defn get-item-by-id-async [item-id]
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
+  (Future.delayed (Duration .seconds 1)
+                  (fn [] (first (filter (fn [[id _data]] (= id item-id)) @items)))))
+
+(defn update-item [id name]
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
+  (Future.delayed (Duration .seconds 1)
+                  (fn [] (swap! items update id assoc :name name))))
+
+(defn delete-item [id]
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
+  (Future.delayed (Duration .seconds 1)
+                  (fn []
+                    (swap! items update dissoc id)
+                    (dart:core/print @items))))
+
+;; widgets
+(defn item-detail-view [item-id]
+  (f/widget
+   :context ctx
+   ;;  fetch watch the fetched item
+   :watch [[id data] (get-item-by-id-async item-id)]
+   :managed [name-controller (m/TextEditingController .text (:name data))]
+   (m/Scaffold .appBar (m/AppBar .title (m/Text "List View")))
+   .body
+   (m/Column
+    .children
+    [(m/ListTile
+      .title (m/TextField
+              .controller name-controller))
+     (m/ListTile
+      .title (m/TextButton
+              .onPressed (fn []
+                           (update-item id (.-text name-controller)))
+              .child (m/Text "Update")))
+     (m/ListTile
+      .title (m/TextButton
+              .onPressed (fn []
+                          ;;  delete the item
+                           (delete-item id)
+                          ;;  navigate back, and signal the deletion
+                           (m/Navigator.pop ctx :delete))
+              .child (m/Text "Delete")))])))
+
+;; list view of items
+(def main-view
+  (let [item-list (atom [])]
+    ;; fetch items and store it in atom `item-list`
+    (.then (get-item-list-async) #(reset! item-list %))
+    (f/widget
+     :get [m/Navigator]
+     :context ctx
+     ;;  watch the `item-list` to react to its state
+     :watch [watched-item-list item-list]
+     (m/ListView
+      .children
+      (for [[id {:keys [name]}] watched-item-list]
+        (m/ListTile
+         .title    (m/Text name)
+         .onTap (fn []
+                  ;; handle the returned value from the navigator
+                  (let [action (await (navigate navigator ctx (item-detail-view id)))]
+                    (condp action =
+                      :delete (swap! item-list dissoc id)
+                      :update (.then (get-item-list-async) #(reset! item-list %))
+                      nil)))
+         .trailing (m/Icon m/Icons.navigate_next)))))))
+
+;; ignore, only calls widget
+(defn main []
+  (f/run
+   (m/MaterialApp
+    .title "Welcome to Flutter"
+    .theme (m/ThemeData .primarySwatch m.Colors/pink))
+   .home
+   (m/Scaffold .appBar (m/AppBar .title (m/Text "List View")))
+   .body main-view))
