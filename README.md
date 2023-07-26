@@ -1,6 +1,6 @@
 # cljd_list_detail_state_flutter
 
-A new Flutter project.
+Example cljd flutter project to demonstrate list-child state handling.
 
 ## Getting Started
 
